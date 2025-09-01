@@ -14,17 +14,23 @@ public class MvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
-        //刷新生命周期的拦截器
-        registry.addInterceptor(new ExpirationInterceptor(redisTemplate)).addPathPatterns("/**").order(0);
-        //校验登录状态的拦截器
-        registry.addInterceptor(new LoginInterceptor()).addPathPatterns(
-                "/shop/**",
-                "/voucher/**",
-                "/shop-type/**",
-                "/upload/**",
-                "/blog/hot",
-                "/user/code",
-                "/user/login"
-        ).order(1);
+        // 1) 刷新登录态的拦截器：放在最前
+        registry.addInterceptor(new ExpirationInterceptor(redisTemplate))
+                .addPathPatterns("/**")
+                .order(0);
+
+        // 2) 登录校验拦截器：拦业务接口，放行登录/验证码/静态资源/公共查询等
+        registry.addInterceptor(new LoginInterceptor())
+                .addPathPatterns("/**")
+                .excludePathPatterns(
+                        "/shop/**",
+                        "/voucher/**",
+                        "/shop-type/**",
+                        "/upload/**",
+                        "/blog/hot",
+                        "/user/code",
+                        "/user/login"
+                )
+                .order(1);
     }
 }
