@@ -13,12 +13,18 @@ import com.hmdp.mapper.UserMapper;
 import com.hmdp.service.IUserService;
 import com.hmdp.utils.RedisConstants;
 import com.hmdp.utils.RegexUtils;
+import com.hmdp.utils.UserHolder;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.cache.CacheProperties;
+import org.springframework.data.redis.connection.BitFieldSubCommands;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -31,6 +37,7 @@ import java.util.concurrent.TimeUnit;
  * @since 2021-12-22
  */
 @Service
+@Slf4j
 public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
     @Autowired
     private StringRedisTemplate template;
@@ -86,6 +93,66 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements IU
         //设置有效期
         template.expire(key, RedisConstants.LOGIN_USER_TTL, TimeUnit.MINUTES);
         return Result.ok(uuid);
+    }
+
+    @Override
+    public Result sign() {
+        //获取登录用户
+        Long userId = UserHolder.getUser().getId();
+        //获取日期
+        LocalDateTime now = LocalDateTime.now();
+        //key年月后缀
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        //拼接key
+        String key = RedisConstants.USER_SIGN_KEY + userId + keySuffix;
+        //获取今天是本月第几天
+        int dayOfMonth = now.getDayOfMonth();
+        //写入redis
+        template.opsForValue().setBit(key,dayOfMonth-1,true);
+        return Result.ok();
+    }
+
+    @Override
+    public Result signCount() {
+        //获取登录用户
+        Long userId = UserHolder.getUser().getId();
+        //获取日期
+        LocalDateTime now = LocalDateTime.now();
+        //key年月后缀
+        String keySuffix = now.format(DateTimeFormatter.ofPattern(":yyyyMM"));
+        //拼接key
+        String key = RedisConstants.USER_SIGN_KEY + userId + keySuffix;
+        //获取今天是本月第几天
+        int dayOfMonth = now.getDayOfMonth();
+        //获取本月到今天为止的所有签到记录
+        List<Long> result = template.opsForValue().bitField(key, BitFieldSubCommands.create().get(
+                BitFieldSubCommands.BitFieldType.unsigned(dayOfMonth)
+        ).valueAt(0));
+        //签到结果非空判断
+        if (result==null||result.isEmpty()){
+            return Result.ok(0);
+        }
+        //将签到记录提取成Long形
+        Long num = result.get(0);
+        //num非空判断
+        if (num==null||num==0){
+            return Result.ok(0);
+        }
+        //循环遍历，查出连续签到天数
+        int count=0;
+        while (true){
+            //跟1做与运算，判断这个bit位是否为0
+            if ((num&1)==0){
+                //为0说明没签到，遍历结束
+                break;
+            }else {
+                //不为0则说明签到了，计数器加1
+                count++;
+            }
+            //数字右移一位，也就是抛弃最后一位数，让下一位数来做判断
+            num>>>=1;
+        }
+        return Result.ok(count);
     }
 
     private User creatUser(String phone) {
